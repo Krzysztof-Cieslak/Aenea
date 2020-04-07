@@ -1,0 +1,12 @@
+.fake/
+packages/
+paket-files/
+nupkg/
+bin/
+obj/
+release.cmd
+release.sh
+.ionide/
+_public
+build/
+out/
