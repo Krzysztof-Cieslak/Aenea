@@ -1,13 +1,13 @@
 <Project>
   <PropertyGroup>
-    <Authors></Authors>
-    <Copyright></Copyright>
+    <Authors>Krzysztof Cieslak</Authors>
+    <Copyright>Krzysztof Cieslak</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl></PackageProjectUrl>
-    <RepositoryUrl></RepositoryUrl>
+    <RepositoryUrl>https://github.com/Krzysztof-Cieslak/Aenea</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageIconUrl></PackageIconUrl>
-    <PackageTags></PackageTags>
-    <PackageDescription></PackageDescription>
+    <PackageTags>F#; Test Runner; CLI; Property-based testing; Unit testing; FsCheck</PackageTags>
+    <PackageDescription>Lightweight CLI test runner for FsCheck</PackageDescription>
   </PropertyGroup>
 </Project>

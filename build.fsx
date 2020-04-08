@@ -19,9 +19,9 @@ open Fake.Api
 
 let project = "Aenea"
 
-let summary = ""
+let summary = "Lightweight CLI test runner for FsCheck"
 
-let gitOwner = "TODO: ADD_AUTHOR"
+let gitOwner = "Krzysztof-Cieslak"
 let gitName = "Aenea"
 let gitHome = "https://github.com/" + gitOwner
 
@@ -42,10 +42,10 @@ let release = ReleaseNotes.parse (System.IO.File.ReadAllLines "RELEASE_NOTES.md"
 let isNullOrWhiteSpace = System.String.IsNullOrWhiteSpace
 
 let exec cmd args dir =
-    let proc = 
+    let proc =
         CreateProcess.fromRawCommandLine cmd args
         |> CreateProcess.ensureExitCodeWithMessage (sprintf "Error while running '%s' with args: %s" cmd args)
-    (if isNullOrWhiteSpace dir then proc 
+    (if isNullOrWhiteSpace dir then proc
     else proc |> CreateProcess.withWorkingDirectory dir)
     |> Proc.run
     |> ignore

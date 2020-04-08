@@ -31,7 +31,7 @@ Guidelines for bug reports:
    case.
 
 Please try to be as detailed as possible in your report. Include information about
-your Operating System, as well as your `dotnet` (or `mono` \ .Net Framework), F# and project versions. Please provide steps to
+your Operating System, as well as your `dotnet`, F# and project versions. Please provide steps to
 reproduce the issue as well as the outcome you were expecting! All these details
 will help developers to fix any potential bugs.
 
