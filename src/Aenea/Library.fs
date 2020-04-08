@@ -9,15 +9,15 @@ module Model =
         | Pending
 
     type AeneaTest =
-        | TestGroup of label: string * tests: AeneaTest list * config : Config option * state: State
-        | TestCase of label: string * testCode: (Config -> unit) * config: Config option * state: State
+        | TestGroup of label: string * tests: AeneaTest list * config : (Config -> Config) option * state: State
+        | TestCase of label: string * testCode: (Config -> unit) * config: (Config -> Config) option * state: State
 
 [<AutoOpen>]
 module Core =
     open Model
 
     let flattenTests (test: AeneaTest) =
-        let rec helper (label: string) (config: Config option) (parentState: State) (t: AeneaTest) =
+        let rec helper (label: string) (config: (Config -> Config) option) (parentState: State) (t: AeneaTest) =
             match t with
             | TestCase(name, code, cfg, state) ->
                 let newState =
@@ -26,8 +26,9 @@ module Core =
                     | _, _ -> state
                 let c =
                     match config, cfg with
-                    | _, Some c -> Some c
+                    | Some pc, Some c -> Some (pc >> c)
                     | Some c, None -> Some c
+                    | None, Some c -> Some c
                     | _ -> None
                 List.singleton (label + "/" + name, code, c, newState)
             | TestGroup(name, tests, cfg, state) ->
@@ -37,8 +38,9 @@ module Core =
                     | _, _ -> state
                 let c =
                     match config, cfg with
-                    | _, Some c -> Some c
+                    | Some pc, Some c -> Some (pc >> c)
                     | Some c, None -> Some c
+                    | None, Some c -> Some c
                     | _ -> None
                 tests |> List.collect (helper (label + "/" + name) c newState)
         helper "" None Normal test
@@ -55,7 +57,10 @@ module Core =
             if state = Pending then
                 ()
             else
-                let c = Option.defaultValue Config.Default cfg
+                let c =
+                    match cfg with
+                    | Some apply -> apply Config.Default
+                    | None -> Config.Default
                 let c = {c with Name = name}
                 f c
 
@@ -63,15 +68,16 @@ module Core =
         match t with
         | TestGroup (l, t, oldConfig, state) ->
             let newConfig =
-                oldConfig
-                |> Option.defaultValue Config.Default
-                |> configTransform
+                match oldConfig with
+                | Some c -> c >> configTransform
+                | None -> configTransform
             TestGroup(l,t,Some newConfig, state)
         | TestCase(label, testCode, oldConfig, state) ->
             let newConfig =
-                oldConfig
-                |> Option.defaultValue Config.Default
-                |> configTransform
+                match oldConfig with
+                | Some c -> c >> configTransform
+                | None -> configTransform
+
 
             TestCase(label, testCode, Some newConfig, state)
 
@@ -121,14 +127,13 @@ module CeDSL =
     type TestCaseState<'a> = {
         Name: string
         State: State
-        Config: Config
         TestCode: ('a -> bool) option
         IsExample: bool
         WithConfig: (Config -> Config) option
     }
 
     type TestCaseBuilder<'a> (name: string) =
-        let mutable state : TestCaseState<'a> = {Name = name; State = Normal; Config = Config.Default; TestCode = None; IsExample = false; WithConfig = None}
+        let mutable state : TestCaseState<'a> = {Name = name; State = Normal; TestCode = None; IsExample = false; WithConfig = None}
 
         member __.Zero () =
             state
@@ -186,23 +191,15 @@ module CeDSL =
             let quickCheckTest =
                 match state.TestCode with
                 | Some tc ->
-
-                    let applyCfg cfg =
-                        match state.WithConfig with
-                        | Some wc -> wc cfg
-                        | None -> cfg
-
                     if state.IsExample then
                         fun cfg ->
-                            let cfg = applyCfg cfg
                             Check.One({cfg with MaxTest = 1}, tc)
                     else
                         fun cfg ->
-                            let cfg = applyCfg cfg
                             Check.One(cfg, tc)
                 | None -> failwith "Some test code needs to be returned"
 
-            TestCase(state.Name, quickCheckTest, Some state.Config, state.State)
+            TestCase(state.Name, quickCheckTest, state.WithConfig, state.State)
 
 
     let test<'a> name = TestCaseBuilder<'a> name
@@ -211,13 +208,12 @@ module CeDSL =
     type TestGroupState = {
         Name: string
         State: State
-        Config: Config option
         Tests: AeneaTest list
         WithConfig: (Config -> Config) option
     }
 
     type TestGroupBuilder(name: string) =
-        let mutable state : TestGroupState = {Name = name; State = Normal; Config = None; Tests = []; WithConfig = None }
+        let mutable state : TestGroupState = {Name = name; State = Normal; Tests = []; WithConfig = None }
 
         member __.Zero () =
             state
@@ -270,16 +266,7 @@ module CeDSL =
             __.Delay(fun () -> func ())
 
         member __.Run (state: TestGroupState) =
-            let tets =
-                match state.WithConfig with
-                | Some wc ->
-                    state.Tests
-                    |> List.rev
-                    |> List.map (withConfig wc)
-                | None ->
-                    state.Tests
-                    |> List.rev
-            TestGroup(state.Name, tets, state.Config, state.State)
+            TestGroup(state.Name, List.rev state.Tests, state.WithConfig, state.State)
 
     let testGroup name = TestGroupBuilder name
 

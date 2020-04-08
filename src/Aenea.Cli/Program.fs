@@ -49,6 +49,7 @@ let main argv =
 
                 test "3" {
                     max_test 42
+                    quiet_on_success false
 
                     fun (xs:list<int>) ->
                         List.rev(List.rev xs) = xs
@@ -60,6 +61,7 @@ let main argv =
             }
             test "5" {
                 example
+                quiet_on_success false
 
                 fun (xs:list<int>) ->
                     List.rev(List.rev xs) = xs
