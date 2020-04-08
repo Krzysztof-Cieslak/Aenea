@@ -8,12 +8,76 @@ module Model =
         | Focused
         | Pending
 
-    type Test =
-        | TestGroup of label: string * tests: Test list * config : Config option * state: State
+    type AeneaTest =
+        | TestGroup of label: string * tests: AeneaTest list * config : Config option * state: State
         | TestCase of label: string * testCode: (Config -> unit) * config: Config option * state: State
 
 [<AutoOpen>]
-module Api =
+module Core =
+    open Model
+
+    let flattenTests (test: AeneaTest) =
+        let rec helper (label: string) (config: Config option) (parentState: State) (t: AeneaTest) =
+            match t with
+            | TestCase(name, code, cfg, state) ->
+                let newState =
+                    match state, parentState with
+                    | Normal, _ -> parentState
+                    | _, _ -> state
+                let c =
+                    match config, cfg with
+                    | _, Some c -> Some c
+                    | Some c, None -> Some c
+                    | _ -> None
+                List.singleton (label + "/" + name, code, c, newState)
+            | TestGroup(name, tests, cfg, state) ->
+                let newState =
+                    match state, parentState with
+                    | Normal, _ -> parentState
+                    | _, _ -> state
+                let c =
+                    match config, cfg with
+                    | _, Some c -> Some c
+                    | Some c, None -> Some c
+                    | _ -> None
+                tests |> List.collect (helper (label + "/" + name) c newState)
+        helper "" None Normal test
+
+    let run (test: AeneaTest) =
+        let flatted = flattenTests test
+        let isAnyFocused = flatted |> List.exists (fun (_,_,_,s) -> s = Focused)
+        let flatted =
+            if isAnyFocused then
+                flatted |> List.filter (fun (_,_,_,s) -> s = Focused)
+            else
+                flatted
+        for (name, f, cfg, state) in flatted do
+            if state = Pending then
+                ()
+            else
+                let c = Option.defaultValue Config.Default cfg
+                let c = {c with Name = name}
+                f c
+
+    let withConfig (configTransform: Config -> Config) (t: AeneaTest) =
+        match t with
+        | TestGroup (l, t, oldConfig, state) ->
+            let newConfig =
+                oldConfig
+                |> Option.defaultValue Config.Default
+                |> configTransform
+            TestGroup(l,t,Some newConfig, state)
+        | TestCase(label, testCode, oldConfig, state) ->
+            let newConfig =
+                oldConfig
+                |> Option.defaultValue Config.Default
+                |> configTransform
+
+            TestCase(label, testCode, Some newConfig, state)
+
+
+
+module ListDSL =
     open Model
 
     let testGroup name lst = TestGroup(name, lst, None, Normal)
@@ -42,66 +106,10 @@ module Api =
         let quickCheckTest cfg = Check.One({cfg with MaxTest = 1}, f)
         TestCase(name, quickCheckTest, None, Focused)
 
-    let withConfig (configTransform: Config -> Config) (t: Test) =
-        match t with
-        | TestGroup (l, t, oldConfig, state) ->
-            let newConfig =
-                oldConfig
-                |> Option.defaultValue Config.Default
-                |> configTransform
-            TestGroup(l,t,Some newConfig, state)
-        | TestCase(label, testCode, oldConfig, state) ->
-            let newConfig =
-                oldConfig
-                |> Option.defaultValue Config.Default
-                |> configTransform
 
-            TestCase(label, testCode, Some newConfig, state)
 
-    let flattenTests (test: Test) =
-        let rec helper (label: string) (config: Config option) (parentState: State) (t: Test) =
-            match t with
-            | TestCase(name, code, cfg, state) ->
-                let newState =
-                    match state, parentState with
-                    | Normal, _ -> parentState
-                    | _, _ -> state
-                let c =
-                    match config, cfg with
-                    | _, Some c -> Some c
-                    | Some c, None -> Some c
-                    | _ -> None
-                List.singleton (label + "/" + name, code, c, newState)
-            | TestGroup(name, tests, cfg, state) ->
-                let newState =
-                    match state, parentState with
-                    | Normal, _ -> parentState
-                    | _, _ -> state
-                let c =
-                    match config, cfg with
-                    | _, Some c -> Some c
-                    | Some c, None -> Some c
-                    | _ -> None
-                tests |> List.collect (helper (label + "/" + name) c newState)
-        helper "" None Normal test
 
-    let run (test: Test) =
-        let flatted = flattenTests test
-        let isAnyFocused = flatted |> List.exists (fun (_,_,_,s) -> s = Focused)
-        let flatted =
-            if isAnyFocused then
-                flatted |> List.filter (fun (_,_,_,s) -> s = Focused)
-            else
-                flatted
-        for (name, f, cfg, state) in flatted do
-            if state = Pending then
-                ()
-            else
-                let c = Option.defaultValue Config.Default cfg
-                let c = {c with Name = name}
-                f c
-
-module CeAPI =
+module CeDSL =
     open Model
     // test "" {
     //     focused //pending
@@ -116,22 +124,33 @@ module CeAPI =
         Config: Config
         TestCode: ('a -> bool) option
         IsExample: bool
+        WithConfig: (Config -> Config) option
     }
 
     type TestCaseBuilder<'a> (name: string) =
-        let mutable state : TestCaseState<'a> = {Name = name; State = Normal; Config = Config.Default; TestCode = None; IsExample = false}
+        let mutable state : TestCaseState<'a> = {Name = name; State = Normal; Config = Config.Default; TestCode = None; IsExample = false; WithConfig = None}
 
         member __.Zero () =
             state
 
         [<CustomOperation("max_test")>]
-        member __.MaxTest(st, value) =
-            state <- {st with Config = {state.Config with MaxTest = value}}
-            state
+        member x.MaxTest(st, value) =
+            let apply = fun cfg -> {cfg with MaxTest = value}
+            x.WithConfig(st, apply)
 
-        [<CustomOperation("code")>]
-        member __.Code(st, value) =
-            state <- {st with TestCode = Some value}
+        [<CustomOperation("quiet_on_success")>]
+        member x.QuietOnSuccess(st, value) =
+            let apply = fun cfg -> {cfg with QuietOnSuccess = value}
+            x.WithConfig(st, apply)
+
+        [<CustomOperation("with_config")>]
+        member __.WithConfig(st, (value: Config -> Config)) =
+            let newWithConfig =
+                match state.WithConfig with
+                | Some wc -> wc >> value
+                | None -> value
+
+            state <- {st with WithConfig = Some newWithConfig}
             state
 
         [<CustomOperation("focused")>]
@@ -158,6 +177,8 @@ module CeAPI =
 
         member __.Delay f = f()
 
+        member __.Combine(st: TestCaseState<'a>, ns: TestCaseState<'a>) = state
+
         member __.For(st, func) =
             __.Delay(fun () -> func ())
 
@@ -165,15 +186,101 @@ module CeAPI =
             let quickCheckTest =
                 match state.TestCode with
                 | Some tc ->
+
+                    let applyCfg cfg =
+                        match state.WithConfig with
+                        | Some wc -> wc cfg
+                        | None -> cfg
+
                     if state.IsExample then
-                        fun cfg -> Check.One({cfg with MaxTest = 1}, tc)
+                        fun cfg ->
+                            let cfg = applyCfg cfg
+                            Check.One({cfg with MaxTest = 1}, tc)
                     else
-                        fun cfg -> Check.One(cfg, tc)
+                        fun cfg ->
+                            let cfg = applyCfg cfg
+                            Check.One(cfg, tc)
                 | None -> failwith "Some test code needs to be returned"
+
             TestCase(state.Name, quickCheckTest, Some state.Config, state.State)
 
 
     let test<'a> name = TestCaseBuilder<'a> name
 
+
+    type TestGroupState = {
+        Name: string
+        State: State
+        Config: Config option
+        Tests: AeneaTest list
+        WithConfig: (Config -> Config) option
+    }
+
+    type TestGroupBuilder(name: string) =
+        let mutable state : TestGroupState = {Name = name; State = Normal; Config = None; Tests = []; WithConfig = None }
+
+        member __.Zero () =
+            state
+
+        [<CustomOperation("max_test")>]
+        member x.MaxTest(st, value) =
+            let apply = fun cfg -> {cfg with MaxTest = value}
+            x.WithConfig(st, apply)
+
+        [<CustomOperation("quiet_on_success")>]
+        member x.QuietOnSuccess(st, value) =
+            let apply = fun cfg -> {cfg with QuietOnSuccess = value}
+            x.WithConfig(st, apply)
+
+        [<CustomOperation("with_config")>]
+        member __.WithConfig(st, (value: Config -> Config)) =
+            let newWithConfig =
+                match state.WithConfig with
+                | Some wc -> wc >> value
+                | None -> value
+
+            state <- {st with WithConfig = Some newWithConfig}
+            state
+
+
+        [<CustomOperation("focused")>]
+        member __.Focused(st) =
+            state <- {st with State = Focused}
+            state
+
+        [<CustomOperation("pending")>]
+        member __.Pending(st) =
+            state <- {st with State = Pending}
+            state
+
+        member __.Yield(other: unit) =
+            state
+
+        member __.Yield(code: AeneaTest) =
+            state <- {state with Tests = (code :: state.Tests)}
+            state
+
+        member __.Combine(st: TestGroupState, ns: TestGroupState) =
+            state
+
+
+        member __.Delay f = f()
+
+        member __.For(st, func) =
+            __.Delay(fun () -> func ())
+
+        member __.Run (state: TestGroupState) =
+            let tets =
+                match state.WithConfig with
+                | Some wc ->
+                    state.Tests
+                    |> List.rev
+                    |> List.map (withConfig wc)
+                | None ->
+                    state.Tests
+                    |> List.rev
+            TestGroup(state.Name, tets, state.Config, state.State)
+
+    let testGroup name = TestGroupBuilder name
 
 

@@ -3,7 +3,8 @@
 open System
 open Aenea
 open FsCheck
-open CeAPI
+open ListDSL
+open CeDSL
 
 [<EntryPoint>]
 let main argv =
@@ -26,14 +27,46 @@ let main argv =
     //     ]
     // run t
 
-    let t =
-        test "My test" {
-            example
+    let group =
+        testGroup "My group" {
+            max_test 1000 // with_config (fun c -> {c with MaxTest = 1000})
+            quiet_on_success true
 
-            code (fun (xs:list<int>) ->
-                List.rev(List.rev xs) <> xs)
+            test "1" {
+                max_test 10
+                quiet_on_success false
+
+                fun (xs:list<int>) ->
+                    List.rev(List.rev xs) = xs
+            }
+
+            test "2" {
+                fun (xs:list<int>) ->
+                   List.rev(List.rev xs) = xs
+            }
+            testGroup "My other group" {
+                max_test 12
+
+                test "3" {
+                    max_test 42
+
+                    fun (xs:list<int>) ->
+                        List.rev(List.rev xs) = xs
+                }
+                test "4" {
+                    fun (xs:list<int>) ->
+                        List.rev(List.rev xs) = xs
+                }
+            }
+            test "5" {
+                example
+
+                fun (xs:list<int>) ->
+                    List.rev(List.rev xs) = xs
+            }
+
         }
-    run t
+    run group
 
-    // printfn "%A" t
+    // printfn "%A" group
     0 // return an integer exit code
