@@ -8,16 +8,32 @@ module Model =
         | Focused
         | Pending
 
+    type ExecutionType =
+        | Parallel
+        | Seqence
+
     type AeneaTest =
         | TestGroup of label: string * tests: AeneaTest list * config : (Config -> Config) option * state: State
         | TestCase of label: string * testCode: (Config -> unit) * config: (Config -> Config) option * state: State
+
+    type TestExecution = {
+        label: string
+        code: Config -> unit
+        configMapper: (Config -> Config) option
+        state: State
+    }
+
+
+    type ExecutionModel =
+        | ETestCase of TestExecution
+        | ETestGroup of ExecutionModel list * ExecutionType
 
 [<AutoOpen>]
 module Core =
     open Model
 
-    let flattenTests (test: AeneaTest) =
-        let rec helper (label: string) (config: (Config -> Config) option) (parentState: State) (t: AeneaTest) =
+    let getExecutionModel (test: AeneaTest) : ExecutionModel =
+        let rec helper (label: string) (config: (Config -> Config) option) (parentState: State) (t: AeneaTest) : ExecutionModel =
             match t with
             | TestCase(name, code, cfg, state) ->
                 let newState =
@@ -30,7 +46,8 @@ module Core =
                     | Some c, None -> Some c
                     | None, Some c -> Some c
                     | _ -> None
-                List.singleton (label + "/" + name, code, c, newState)
+                let o = {label = label + "/" + name; code = code; configMapper = c; state = newState}
+                ETestCase o
             | TestGroup(name, tests, cfg, state) ->
                 let newState =
                     match state, parentState with
@@ -42,27 +59,61 @@ module Core =
                     | Some c, None -> Some c
                     | None, Some c -> Some c
                     | _ -> None
-                tests |> List.collect (helper (label + "/" + name) c newState)
+                let tests = tests |> List.map (helper (label + "/" + name) c newState)
+                ETestGroup (tests, Parallel)
         helper "" None Normal test
 
-    let run (test: AeneaTest) =
-        let flatted = flattenTests test
-        let isAnyFocused = flatted |> List.exists (fun (_,_,_,s) -> s = Focused)
-        let flatted =
-            if isAnyFocused then
-                flatted |> List.filter (fun (_,_,_,s) -> s = Focused)
-            else
-                flatted
-        for (name, f, cfg, state) in flatted do
-            if state = Pending then
+    let rec flattenExecModel = function
+        | ETestCase ec -> List.singleton ec
+        | ETestGroup (tests,_) ->
+            tests
+            |> List.collect flattenExecModel
+
+    let rec filterExecModel prop = function
+        | ETestCase ec when prop ec -> Some (ETestCase ec)
+        | ETestCase ec when not (prop ec) -> None
+        | ETestGroup (tests,et) ->
+            let tests =
+                tests
+                |> List.choose (filterExecModel prop)
+            Some <| ETestGroup(tests, et)
+
+    let rec runExecutionModel = function
+        | ETestCase x ->
+            if x.state = Pending then
                 ()
             else
                 let c =
-                    match cfg with
+                    match x.configMapper with
                     | Some apply -> apply Config.Default
                     | None -> Config.Default
-                let c = {c with Name = name}
-                f c
+                let c = {c with Name = x.label}
+                // printfn "Starting %s" name
+                x.code c
+                // printfn "Finished %s" name
+        | ETestGroup(tests, Parallel) ->
+            tests
+            |> List.toArray
+            |> Array.Parallel.iter runExecutionModel
+        | ETestGroup(tests, Seqence) ->
+            tests
+            |> List.iter runExecutionModel
+
+    let run (test: AeneaTest) =
+        let exuctionModel = getExecutionModel test
+        let isAnyFocused =
+            exuctionModel
+            |> flattenExecModel
+            |> List.exists (fun x -> x.state = Focused)
+        let execution =
+            if isAnyFocused then
+                exuctionModel |> filterExecModel (fun x -> x.state = Focused)
+            else
+                Some exuctionModel
+        match execution with
+        | None -> ()
+        | Some exuction ->
+            runExecutionModel exuction
 
     let withConfig (configTransform: Config -> Config) (t: AeneaTest) =
         match t with

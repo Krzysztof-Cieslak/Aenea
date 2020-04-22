@@ -27,18 +27,21 @@ let main argv =
     //     ]
     // run t
 
+    let testSample  =
+        test "1" {
+            max_test 10
+            //quiet_on_success false
+
+            fun (xs:list<int>) ->
+                List.rev(List.rev xs) = xs
+        }
+
     let group =
         testGroup "My group" {
             max_test 1000 // with_config (fun c -> {c with MaxTest = 1000})
-            quiet_on_success true
+            //quiet_on_success true
 
-            test "1" {
-                max_test 10
-                quiet_on_success false
-
-                fun (xs:list<int>) ->
-                    List.rev(List.rev xs) = xs
-            }
+            testSample
 
             test "2" {
                 fun (xs:list<int>) ->
@@ -47,10 +50,11 @@ let main argv =
 
             testGroup "My other group" {
                 max_test 12
+                // sequentional
 
                 test "3" {
                     max_test 42
-                    quiet_on_success false
+                    //quiet_on_success false
 
                     fun (xs:list<int>) ->
                         List.rev(List.rev xs) = xs
@@ -59,10 +63,25 @@ let main argv =
                     fun (xs:list<int>) ->
                         List.rev(List.rev xs) = xs
                 }
+
+                testGroup "In parallel agian" {
+                    // parallel
+                    test "3" {
+                        max_test 42
+                        //quiet_on_success false
+
+                        fun (xs:list<int>) ->
+                            List.rev(List.rev xs) = xs
+                    }
+                    test "4" {
+                        fun (xs:list<int>) ->
+                            List.rev(List.rev xs) = xs
+                    }
+                }
             }
             test "5" {
                 example
-                quiet_on_success false
+                //quiet_on_success false
 
                 fun (xs:list<int>) ->
                     List.rev(List.rev xs) = xs
@@ -74,7 +93,7 @@ let main argv =
                        (x % 2 = 0) ==> lazy ((x * 2) % 2 = 0)
                 }
                 test "labels" {
-                    pending // uncomment to see failures with printed labels
+                    // pending // uncomment to see failures with printed labels
                     fun (x:int) ->
                         (x % 2 = 0) |@ "not even"
                         .&.
