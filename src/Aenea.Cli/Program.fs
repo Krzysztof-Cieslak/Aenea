@@ -44,6 +44,7 @@ let main argv =
                 fun (xs:list<int>) ->
                    List.rev(List.rev xs) = xs
             }
+
             testGroup "My other group" {
                 max_test 12
 
@@ -67,6 +68,19 @@ let main argv =
                     List.rev(List.rev xs) = xs
             }
 
+            testGroup "FsCheck Properties" {
+                test "imply" {
+                    fun (x:int) ->
+                       (x % 2 = 0) ==> lazy ((x * 2) % 2 = 0)
+                }
+                test "labels" {
+                    pending // uncomment to see failures with printed labels
+                    fun (x:int) ->
+                        (x % 2 = 0) |@ "not even"
+                        .&.
+                        (sign x = 1) |@ "not positive"
+                }
+            }
         }
     run group
 

@@ -127,7 +127,7 @@ module CeDSL =
     type TestCaseState<'a> = {
         Name: string
         State: State
-        TestCode: ('a -> bool) option
+        TestCode: Property option
         IsExample: bool
         WithConfig: (Config -> Config) option
     }
@@ -176,8 +176,12 @@ module CeDSL =
         member __.Yield(other: unit) =
             state
 
+        member __.Yield(code: 'a -> Property) =
+            state <- {state with TestCode = Some (Prop.ofTestable code)}
+            state
+
         member __.Yield(code: 'a -> bool) =
-            state <- {state with TestCode = Some code}
+            state <- {state with TestCode = Some (Prop.ofTestable code)}
             state
 
         member __.Delay f = f()
@@ -269,5 +273,3 @@ module CeDSL =
             TestGroup(state.Name, List.rev state.Tests, state.WithConfig, state.State)
 
     let testGroup name = TestGroupBuilder name
-
-
