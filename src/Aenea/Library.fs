@@ -13,7 +13,7 @@ module Model =
         | Seqence
 
     type AeneaTest =
-        | TestGroup of label: string * tests: AeneaTest list * config : (Config -> Config) option * state: State
+        | TestGroup of label: string * tests: AeneaTest list * config : (Config -> Config) option * state: State * executionType: ExecutionType
         | TestCase of label: string * testCode: (Config -> unit) * config: (Config -> Config) option * state: State
 
     type TestExecution = {
@@ -48,7 +48,7 @@ module Core =
                     | _ -> None
                 let o = {label = label + "/" + name; code = code; configMapper = c; state = newState}
                 ETestCase o
-            | TestGroup(name, tests, cfg, state) ->
+            | TestGroup(name, tests, cfg, state, excType) ->
                 let newState =
                     match state, parentState with
                     | Normal, _ -> parentState
@@ -60,7 +60,7 @@ module Core =
                     | None, Some c -> Some c
                     | _ -> None
                 let tests = tests |> List.map (helper (label + "/" + name) c newState)
-                ETestGroup (tests, Parallel)
+                ETestGroup (tests, excType)
         helper "" None Normal test
 
     let rec flattenExecModel = function
@@ -71,7 +71,7 @@ module Core =
 
     let rec filterExecModel prop = function
         | ETestCase ec when prop ec -> Some (ETestCase ec)
-        | ETestCase ec when not (prop ec) -> None
+        | ETestCase _ -> None
         | ETestGroup (tests,et) ->
             let tests =
                 tests
@@ -117,12 +117,12 @@ module Core =
 
     let withConfig (configTransform: Config -> Config) (t: AeneaTest) =
         match t with
-        | TestGroup (l, t, oldConfig, state) ->
+        | TestGroup (l, t, oldConfig, state, excType) ->
             let newConfig =
                 match oldConfig with
                 | Some c -> c >> configTransform
                 | None -> configTransform
-            TestGroup(l,t,Some newConfig, state)
+            TestGroup(l,t,Some newConfig, state, excType)
         | TestCase(label, testCode, oldConfig, state) ->
             let newConfig =
                 match oldConfig with
@@ -137,7 +137,7 @@ module Core =
 module ListDSL =
     open Model
 
-    let testGroup name lst = TestGroup(name, lst, None, Normal)
+    let testGroup name lst = TestGroup(name, lst, None, Normal, Parallel)
     let test name (f: 'Testable) =
         let quickCheckTest cfg = Check.One(cfg, f)
         TestCase(name, quickCheckTest, None, Normal)
@@ -145,7 +145,7 @@ module ListDSL =
         let quickCheckTest cfg = Check.One({cfg with MaxTest = 1}, f)
         TestCase(name, quickCheckTest, None, Normal)
 
-    let ptestGroup name lst = TestGroup(name, lst, None, Pending)
+    let ptestGroup name lst = TestGroup(name, lst, None, Pending, Parallel)
     let ptest name (f: 'Testable) =
         let quickCheckTest cfg = Check.One(cfg, f)
         TestCase(name, quickCheckTest, None, Pending)
@@ -154,7 +154,7 @@ module ListDSL =
         let quickCheckTest cfg = Check.One({cfg with MaxTest = 1}, f)
         TestCase(name, quickCheckTest, None, Pending)
 
-    let ftestGroup name lst = TestGroup(name, lst, None, Focused)
+    let ftestGroup name lst = TestGroup(name, lst, None, Focused, Parallel)
     let ftest name (f: 'Testable) =
         let quickCheckTest cfg = Check.One(cfg, f)
         TestCase(name, quickCheckTest, None, Focused)
@@ -265,10 +265,11 @@ module CeDSL =
         State: State
         Tests: AeneaTest list
         WithConfig: (Config -> Config) option
+        ExecutionType: ExecutionType
     }
 
     type TestGroupBuilder(name: string) =
-        let mutable state : TestGroupState = {Name = name; State = Normal; Tests = []; WithConfig = None }
+        let mutable state : TestGroupState = {Name = name; State = Normal; Tests = []; WithConfig = None; ExecutionType = Parallel }
 
         member __.Zero () =
             state
@@ -304,6 +305,11 @@ module CeDSL =
             state <- {st with State = Pending}
             state
 
+        [<CustomOperation("sequence")>]
+        member __.Sequence(st) =
+            state <- {st with ExecutionType = Seqence}
+            state
+
         member __.Yield(other: unit) =
             state
 
@@ -321,6 +327,6 @@ module CeDSL =
             __.Delay(fun () -> func ())
 
         member __.Run (state: TestGroupState) =
-            TestGroup(state.Name, List.rev state.Tests, state.WithConfig, state.State)
+            TestGroup(state.Name, List.rev state.Tests, state.WithConfig, state.State, state.ExecutionType)
 
     let testGroup name = TestGroupBuilder name

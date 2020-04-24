@@ -50,10 +50,10 @@ let main argv =
 
             testGroup "My other group" {
                 max_test 12
-                // sequentional
+                sequence
 
                 test "3" {
-                    max_test 42
+                    max_test 4200
                     //quiet_on_success false
 
                     fun (xs:list<int>) ->
@@ -65,7 +65,6 @@ let main argv =
                 }
 
                 testGroup "In parallel agian" {
-                    // parallel
                     test "3" {
                         max_test 42
                         //quiet_on_success false
